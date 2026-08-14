@@ -28,10 +28,10 @@ jobs:
           mkdir -p gradle/wrapper
           if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
             if command -v gradle >/dev/null 2>&1; then
-              gradle wrapper --gradle-version 8.13 --distribution-type bin || true
+              gradle wrapper --gradle-version 9.3.1 --distribution-type bin || true
             fi
             if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-              curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar || true
+              curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v9.3.1/gradle/wrapper/gradle-wrapper.jar || curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar || true
             fi
           fi
 
