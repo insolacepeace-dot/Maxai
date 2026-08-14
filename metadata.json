@@ -1,0 +1,6 @@
+{
+  "name": "TARUN AI",
+  "description": "A futuristic JARVIS-style personal AI voice assistant with Hindi, Gujarati, English speech, device automation, WhatsApp & notification reader, and Gemini intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

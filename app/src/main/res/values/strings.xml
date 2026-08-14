@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">TARUN AI</string>
+    <string name="accessibility_service_description">Tarun AI Voice Assistant uses this accessibility service exclusively to perform user-requested device actions like navigating Back, Home, Opening Recent Apps, and assisting with hands-free voice automation. No private or personal data is collected or monitored.</string>
+    <string name="notification_listener_description">Tarun AI listens for incoming notifications to read important messages and provide hands-free voice replies upon your command.</string>
+</resources>
