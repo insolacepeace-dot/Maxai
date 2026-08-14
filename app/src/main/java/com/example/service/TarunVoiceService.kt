@@ -16,6 +16,9 @@ import com.example.R
 class TarunVoiceService : Service() {
 
     companion object {
+        const val ACTION_START_LISTENING = "com.example.service.action.START_LISTENING"
+        const val ACTION_STOP = "com.example.service.action.STOP"
+
         private const val CHANNEL_ID = "tarun_voice_channel"
         private const val NOTIFICATION_ID = 1001
 

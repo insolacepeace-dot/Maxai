@@ -107,6 +107,62 @@ class TarunRepository(
         dao.deleteAutomation(id)
     }
 
+    // Alarms
+    val alarms: Flow<List<com.example.data.local.AlarmEntity>> = dao.getAllAlarms()
+
+    suspend fun getEnabledAlarms(): List<com.example.data.local.AlarmEntity> {
+        return dao.getEnabledAlarms()
+    }
+
+    suspend fun getAlarmById(id: Long): com.example.data.local.AlarmEntity? {
+        return dao.getAlarmById(id)
+    }
+
+    suspend fun saveAlarm(alarm: com.example.data.local.AlarmEntity): Long {
+        return dao.insertAlarm(alarm)
+    }
+
+    suspend fun toggleAlarm(id: Long, enabled: Boolean) {
+        dao.toggleAlarm(id, enabled)
+    }
+
+    suspend fun deleteAlarm(id: Long) {
+        dao.deleteAlarm(id)
+    }
+
+    suspend fun clearAllAlarms() {
+        dao.clearAllAlarms()
+    }
+
+    // WhatsApp Business / Agent
+    val whatsAppContacts: Flow<List<com.example.data.local.WhatsAppContactEntity>> = dao.getAllWhatsAppContacts()
+    val whatsAppMessages: Flow<List<com.example.data.local.WhatsAppMessageEntity>> = dao.getAllWhatsAppMessages()
+    val pendingWhatsAppApprovals: Flow<List<com.example.data.local.WhatsAppMessageEntity>> = dao.getPendingApprovalMessages()
+
+    suspend fun saveWhatsAppContact(contact: com.example.data.local.WhatsAppContactEntity): Long {
+        return dao.insertWhatsAppContact(contact)
+    }
+
+    suspend fun deleteWhatsAppContact(id: Long) {
+        dao.deleteWhatsAppContact(id)
+    }
+
+    suspend fun saveWhatsAppMessage(message: com.example.data.local.WhatsAppMessageEntity): Long {
+        return dao.insertWhatsAppMessage(message)
+    }
+
+    suspend fun updateWhatsAppMessageStatus(id: Long, status: String, finalReply: String) {
+        dao.updateWhatsAppMessageStatus(id, status, finalReply)
+    }
+
+    suspend fun deleteWhatsAppMessage(id: Long) {
+        dao.deleteWhatsAppMessage(id)
+    }
+
+    suspend fun clearAllWhatsAppMessages() {
+        dao.clearAllWhatsAppMessages()
+    }
+
     fun updateAppSettings(settings: AppSettings) {
         preferences.updateAppSettings(settings)
     }

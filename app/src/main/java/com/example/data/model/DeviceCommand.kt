@@ -17,6 +17,12 @@ enum class CommandType {
     OPEN_RECENTS,
     MAKE_CALL,
     DRAFT_WHATSAPP,
+    PLAY_MUSIC,
+    PAUSE_MUSIC,
+    NEXT_TRACK,
+    PREV_TRACK,
+    ANALYZE_SCREEN,
+    GET_WEATHER,
     CONVERSATION_ONLY,
     UNKNOWN
 }

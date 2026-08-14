@@ -20,8 +20,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -48,7 +52,9 @@ import com.example.ui.screens.AboutScreen
 import com.example.ui.screens.AppSettingsScreen
 import com.example.ui.screens.AutomationScreen
 import com.example.ui.screens.BuildExportScreen
+import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.ConversationHistoryScreen
+import com.example.ui.screens.CreativityScreen
 import com.example.ui.screens.DeveloperModeScreen
 import com.example.ui.screens.DeviceControlScreen
 import com.example.ui.screens.GeminiSettingsScreen
@@ -58,9 +64,12 @@ import com.example.ui.screens.NotificationCenterScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.PermissionCenterScreen
 import com.example.ui.screens.PrivacyScreen
+import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.RoutinesScreen
 import com.example.ui.screens.SkillsScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.VoiceSettingsScreen
+import com.example.ui.screens.WhatsAppAgentScreen
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.Blue600
 import com.example.ui.theme.CorePulseViolet
@@ -94,6 +103,8 @@ fun TarunNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    val isTopLevelScreen = PrimaryBottomNavScreens.any { it.route == currentRoute }
+    val showBottomBar = isTopLevelScreen && currentRoute != TarunScreen.Splash.route && currentRoute != TarunScreen.Onboarding.route
     val isDrawerEnabled = currentRoute != TarunScreen.Splash.route && currentRoute != TarunScreen.Onboarding.route
 
     ModalNavigationDrawer(
@@ -199,135 +210,241 @@ fun TarunNavHost(
             }
         }
     ) {
-        NavHost(
-            navController = navController,
-            startDestination = TarunScreen.Splash.route
-        ) {
-            composable(TarunScreen.Splash.route) {
-                SplashScreen(
-                    onSplashFinished = {
-                        val destination = if (appSettings.onboarded) TarunScreen.MainAi.route else TarunScreen.Onboarding.route
-                        navController.navigate(destination) {
-                            popUpTo(TarunScreen.Splash.route) { inclusive = true }
+        Scaffold(
+            bottomBar = {
+                if (showBottomBar) {
+                    NavigationBar(
+                        containerColor = GlassSurfaceDark,
+                        contentColor = NeonCyan,
+                        tonalElevation = 8.dp
+                    ) {
+                        PrimaryBottomNavScreens.forEach { screen ->
+                            val selected = currentRoute == screen.route
+                            NavigationBarItem(
+                                icon = {
+                                    if (screen.icon != null) {
+                                        Icon(
+                                            imageVector = screen.icon,
+                                            contentDescription = screen.title,
+                                            tint = if (selected) NeonCyan else Slate400
+                                        )
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = screen.title,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selected) NeonCyan else Slate400
+                                    )
+                                },
+                                selected = selected,
+                                onClick = {
+                                    if (currentRoute != screen.route) {
+                                        navController.navigate(screen.route) {
+                                            popUpTo(TarunScreen.MainAi.route) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = NeonCyan,
+                                    selectedTextColor = NeonCyan,
+                                    indicatorColor = GlassWhite10,
+                                    unselectedIconColor = Slate400,
+                                    unselectedTextColor = Slate400
+                                )
+                            )
                         }
                     }
-                )
-            }
-
-            composable(TarunScreen.Onboarding.route) {
-                OnboardingScreen(
-                    viewModel = viewModel,
-                    onFinish = {
-                        navController.navigate(TarunScreen.MainAi.route) {
-                            popUpTo(TarunScreen.Onboarding.route) { inclusive = true }
-                        }
+                }
+            },
+            containerColor = SpaceDarkBackground
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                NavHost(
+                    navController = navController,
+                    startDestination = TarunScreen.Splash.route
+                ) {
+                    composable(TarunScreen.Splash.route) {
+                        SplashScreen(
+                            onSplashFinished = {
+                                val destination = if (appSettings.onboarded) TarunScreen.MainAi.route else TarunScreen.Onboarding.route
+                                navController.navigate(destination) {
+                                    popUpTo(TarunScreen.Splash.route) { inclusive = true }
+                                }
+                            }
+                        )
                     }
-                )
-            }
 
-            composable(TarunScreen.MainAi.route) {
-                MainAiScreen(
-                    viewModel = viewModel,
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                    onNavigateToHistory = { navController.navigate(TarunScreen.History.route) }
-                )
-            }
+                    composable(TarunScreen.Onboarding.route) {
+                        OnboardingScreen(
+                            viewModel = viewModel,
+                            onFinish = {
+                                navController.navigate(TarunScreen.MainAi.route) {
+                                    popUpTo(TarunScreen.Onboarding.route) { inclusive = true }
+                                }
+                            }
+                        )
+                    }
 
-            composable(TarunScreen.DeviceControl.route) {
-                DeviceControlScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    // 6 Primary Hubs
+                    composable(TarunScreen.MainAi.route) {
+                        MainAiScreen(
+                            viewModel = viewModel,
+                            onOpenDrawer = { scope.launch { drawerState.open() } },
+                            onNavigateToHistory = { navController.navigate(TarunScreen.History.route) }
+                        )
+                    }
 
-            composable(TarunScreen.History.route) {
-                ConversationHistoryScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Chat.route) {
+                        ChatScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.navigate(TarunScreen.MainAi.route) }
+                        )
+                    }
 
-            composable(TarunScreen.NotificationCenter.route) {
-                NotificationCenterScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.WhatsAppAgent.route) {
+                        WhatsAppAgentScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.navigate(TarunScreen.MainAi.route) }
+                        )
+                    }
 
-            composable(TarunScreen.Skills.route) {
-                SkillsScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Routines.route) {
+                        RoutinesScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.navigate(TarunScreen.MainAi.route) }
+                        )
+                    }
 
-            composable(TarunScreen.Memory.route) {
-                MemoryScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Creativity.route) {
+                        CreativityScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.navigate(TarunScreen.MainAi.route) }
+                        )
+                    }
 
-            composable(TarunScreen.Automation.route) {
-                AutomationScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Profile.route) {
+                        ProfileScreen(
+                            viewModel = viewModel,
+                            onNavigateToGemini = { navController.navigate(TarunScreen.GeminiSettings.route) },
+                            onNavigateToVoice = { navController.navigate(TarunScreen.VoiceSettings.route) },
+                            onNavigateToPermissions = { navController.navigate(TarunScreen.PermissionCenter.route) },
+                            onNavigateToMemory = { navController.navigate(TarunScreen.Memory.route) },
+                            onNavigateToExport = { navController.navigate(TarunScreen.BuildExport.route) },
+                            onNavigateToPrivacy = { navController.navigate(TarunScreen.Privacy.route) },
+                            onNavigateToDeveloper = { navController.navigate(TarunScreen.DeveloperMode.route) },
+                            onNavigateToAbout = { navController.navigate(TarunScreen.About.route) },
+                            onNavigateBack = { navController.navigate(TarunScreen.MainAi.route) }
+                        )
+                    }
 
-            composable(TarunScreen.DeveloperMode.route) {
-                DeveloperModeScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    // Secondary Sub-Screens
+                    composable(TarunScreen.DeviceControl.route) {
+                        DeviceControlScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.PermissionCenter.route) {
-                PermissionCenterScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.History.route) {
+                        ConversationHistoryScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.VoiceSettings.route) {
-                VoiceSettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.NotificationCenter.route) {
+                        NotificationCenterScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.GeminiSettings.route) {
-                GeminiSettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Skills.route) {
+                        SkillsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.AppSettings.route) {
-                AppSettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Memory.route) {
+                        MemoryScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.Privacy.route) {
-                PrivacyScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.Automation.route) {
+                        AutomationScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.BuildExport.route) {
-                BuildExportScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
+                    composable(TarunScreen.DeveloperMode.route) {
+                        DeveloperModeScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-            composable(TarunScreen.About.route) {
-                AboutScreen(
-                    onBack = { navController.popBackStack() }
-                )
+                    composable(TarunScreen.PermissionCenter.route) {
+                        PermissionCenterScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(TarunScreen.VoiceSettings.route) {
+                        VoiceSettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(TarunScreen.GeminiSettings.route) {
+                        GeminiSettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(TarunScreen.AppSettings.route) {
+                        AppSettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(TarunScreen.Privacy.route) {
+                        PrivacyScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(TarunScreen.BuildExport.route) {
+                        BuildExportScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(TarunScreen.About.route) {
+                        AboutScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                }
             }
         }
     }

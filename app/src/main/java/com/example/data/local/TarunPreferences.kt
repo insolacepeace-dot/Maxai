@@ -35,6 +35,8 @@ class TarunPreferences(context: Context) {
             askBeforeSending = prefs.getBoolean("ask_before_sending", true),
             conversationMemoryEnabled = prefs.getBoolean("memory_enabled", true),
             hapticFeedbackEnabled = prefs.getBoolean("haptic_enabled", true),
+            proactiveSuggestions = prefs.getBoolean("proactive_suggestions", false),
+            autoReadNotifications = prefs.getBoolean("auto_read_notifications", false),
             onboarded = prefs.getBoolean("is_onboarded", false)
         )
     }
@@ -66,6 +68,8 @@ class TarunPreferences(context: Context) {
             .putBoolean("ask_before_sending", settings.askBeforeSending)
             .putBoolean("memory_enabled", settings.conversationMemoryEnabled)
             .putBoolean("haptic_enabled", settings.hapticFeedbackEnabled)
+            .putBoolean("proactive_suggestions", settings.proactiveSuggestions)
+            .putBoolean("auto_read_notifications", settings.autoReadNotifications)
             .putBoolean("is_onboarded", settings.onboarded)
             .apply()
         _appSettings.value = settings

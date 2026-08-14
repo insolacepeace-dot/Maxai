@@ -69,4 +69,54 @@ interface TarunDao {
 
     @Query("DELETE FROM automations WHERE id = :id")
     suspend fun deleteAutomation(id: Long)
+
+    // Alarms
+    @Query("SELECT * FROM alarms ORDER BY hour ASC, minute ASC")
+    fun getAllAlarms(): Flow<List<AlarmEntity>>
+
+    @Query("SELECT * FROM alarms WHERE isEnabled = 1 ORDER BY hour ASC, minute ASC")
+    suspend fun getEnabledAlarms(): List<AlarmEntity>
+
+    @Query("SELECT * FROM alarms WHERE id = :id")
+    suspend fun getAlarmById(id: Long): AlarmEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAlarm(alarm: AlarmEntity): Long
+
+    @Query("UPDATE alarms SET isEnabled = :enabled WHERE id = :id")
+    suspend fun toggleAlarm(id: Long, enabled: Boolean)
+
+    @Query("DELETE FROM alarms WHERE id = :id")
+    suspend fun deleteAlarm(id: Long)
+
+    @Query("DELETE FROM alarms")
+    suspend fun clearAllAlarms()
+
+    // WhatsApp Business / Agent
+    @Query("SELECT * FROM whatsapp_contacts ORDER BY lastMessageTime DESC")
+    fun getAllWhatsAppContacts(): Flow<List<WhatsAppContactEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWhatsAppContact(contact: WhatsAppContactEntity): Long
+
+    @Query("DELETE FROM whatsapp_contacts WHERE id = :id")
+    suspend fun deleteWhatsAppContact(id: Long)
+
+    @Query("SELECT * FROM whatsapp_messages ORDER BY timestamp DESC")
+    fun getAllWhatsAppMessages(): Flow<List<WhatsAppMessageEntity>>
+
+    @Query("SELECT * FROM whatsapp_messages WHERE status = 'PENDING_APPROVAL' ORDER BY timestamp DESC")
+    fun getPendingApprovalMessages(): Flow<List<WhatsAppMessageEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWhatsAppMessage(message: WhatsAppMessageEntity): Long
+
+    @Query("UPDATE whatsapp_messages SET status = :status, finalSentReply = :finalReply WHERE id = :id")
+    suspend fun updateWhatsAppMessageStatus(id: Long, status: String, finalReply: String)
+
+    @Query("DELETE FROM whatsapp_messages WHERE id = :id")
+    suspend fun deleteWhatsAppMessage(id: Long)
+
+    @Query("DELETE FROM whatsapp_messages")
+    suspend fun clearAllWhatsAppMessages()
 }

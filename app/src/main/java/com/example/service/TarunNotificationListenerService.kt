@@ -48,6 +48,11 @@ class TarunNotificationListenerService : NotificationListenerService() {
                 false
             }
         }
+
+        fun replyToLastWhatsApp(context: android.content.Context? = null, replyMessage: String): Boolean {
+            val key = _latestWhatsAppNotification.value?.notificationKey ?: return false
+            return replyToNotification(key, replyMessage)
+        }
     }
 
     override fun onCreate() {

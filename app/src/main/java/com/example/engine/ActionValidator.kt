@@ -46,7 +46,9 @@ class ActionValidator(private val permissionManager: PermissionManager) {
             CommandType.OPEN_APP, CommandType.TOGGLE_TORCH, CommandType.VOLUME_UP,
             CommandType.VOLUME_DOWN, CommandType.SET_ALARM, CommandType.OPEN_SETTINGS,
             CommandType.OPEN_WIFI_SETTINGS, CommandType.OPEN_BLUETOOTH_SETTINGS,
-            CommandType.OPEN_CAMERA, CommandType.CONVERSATION_ONLY, CommandType.DRAFT_WHATSAPP -> {
+            CommandType.OPEN_CAMERA, CommandType.CONVERSATION_ONLY, CommandType.DRAFT_WHATSAPP,
+            CommandType.PLAY_MUSIC, CommandType.PAUSE_MUSIC, CommandType.NEXT_TRACK,
+            CommandType.PREV_TRACK, CommandType.ANALYZE_SCREEN, CommandType.GET_WEATHER -> {
                 ValidationResult.Allowed
             }
 

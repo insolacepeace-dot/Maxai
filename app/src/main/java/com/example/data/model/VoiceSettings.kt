@@ -28,6 +28,8 @@ data class AppSettings(
     val askBeforeSending: Boolean = true,
     val conversationMemoryEnabled: Boolean = true,
     val hapticFeedbackEnabled: Boolean = true,
+    val proactiveSuggestions: Boolean = false,
+    val autoReadNotifications: Boolean = false,
     val onboarded: Boolean = false
 )
 

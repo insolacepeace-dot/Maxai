@@ -1,13 +1,21 @@
 package com.example.viewmodel
 
 import android.app.Application
+import android.content.Intent
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai.AIContext
 import com.example.ai.AIProviderManager
+import com.example.ai.GeminiProvider
+import com.example.data.local.AlarmEntity
+import com.example.data.local.AutomationEntity
+import com.example.data.local.MemoryFactEntity
 import com.example.data.local.NotificationEventEntity
 import com.example.data.local.TarunDatabase
 import com.example.data.local.TarunPreferences
+import com.example.data.local.WhatsAppContactEntity
+import com.example.data.local.WhatsAppMessageEntity
 import com.example.data.model.AppSettings
 import com.example.data.model.AssistantState
 import com.example.data.model.CommandType
@@ -16,11 +24,17 @@ import com.example.data.model.TarunMessage
 import com.example.data.model.VoiceSettings
 import com.example.data.repository.TarunRepository
 import com.example.engine.ActionValidator
+import com.example.engine.AlarmScheduler
+import com.example.engine.AudioTrack
 import com.example.engine.CommandExecutor
 import com.example.engine.PermissionManager
 import com.example.engine.PermissionStatus
+import com.example.engine.PlaybackState
+import com.example.engine.ScreenAnalysisHelper
+import com.example.engine.TarunMediaPlayer
 import com.example.engine.VoiceSystem
 import com.example.service.TarunNotificationListenerService
+import com.example.service.TarunVoiceService
 import com.example.ui.components.HapticFeedbackHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +52,8 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
     val permissionManager = PermissionManager(context)
     val actionValidator = ActionValidator(permissionManager)
     private val commandExecutor = CommandExecutor(context, repository, permissionManager)
+    private val alarmScheduler = AlarmScheduler(context)
+    val mediaPlayer = TarunMediaPlayer.getInstance(context)
 
     val appSettings: StateFlow<AppSettings> = repository.appSettings
     val voiceSettings: StateFlow<VoiceSettings> = repository.voiceSettings
@@ -65,6 +81,11 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTestingGemini = MutableStateFlow(false)
     val isTestingGemini: StateFlow<Boolean> = _isTestingGemini.asStateFlow()
 
+    private val _availableGeminiModels = MutableStateFlow<List<String>>(
+        listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-lite")
+    )
+    val availableGeminiModels: StateFlow<List<String>> = _availableGeminiModels.asStateFlow()
+
     private val _permissionStatuses = MutableStateFlow(permissionManager.getAllPermissionStatuses())
     val permissionStatuses: StateFlow<List<PermissionStatus>> = _permissionStatuses.asStateFlow()
 
@@ -77,11 +98,38 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
     val allNotifications: StateFlow<List<NotificationEventEntity>> = repository.recentNotifications
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val memoryFacts: StateFlow<List<com.example.data.local.MemoryFactEntity>> = repository.memoryFacts
+    val memoryFacts: StateFlow<List<MemoryFactEntity>> = repository.memoryFacts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val automations: StateFlow<List<com.example.data.local.AutomationEntity>> = repository.automations
+    val automations: StateFlow<List<AutomationEntity>> = repository.automations
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val alarms: StateFlow<List<AlarmEntity>> = repository.alarms
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val whatsAppContacts: StateFlow<List<WhatsAppContactEntity>> = repository.whatsAppContacts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val whatsAppMessages: StateFlow<List<WhatsAppMessageEntity>> = repository.whatsAppMessages
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingWhatsAppApprovals: StateFlow<List<WhatsAppMessageEntity>> = repository.pendingWhatsAppApprovals
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Media player state
+    val mediaPlaybackState: StateFlow<PlaybackState> = mediaPlayer.playbackState
+    val currentTrack: StateFlow<AudioTrack?> = mediaPlayer.currentTrack
+    val playlist: StateFlow<List<AudioTrack>> = mediaPlayer.playlist
+
+    // Screen analysis
+    private val _screenAnalysisResult = MutableStateFlow<String?>(null)
+    val screenAnalysisResult: StateFlow<String?> = _screenAnalysisResult.asStateFlow()
+    private val _isAnalyzingScreen = MutableStateFlow(false)
+    val isAnalyzingScreen: StateFlow<Boolean> = _isAnalyzingScreen.asStateFlow()
+
+    // Background Service state
+    private val _isBackgroundServiceActive = MutableStateFlow(false)
+    val isBackgroundServiceActive: StateFlow<Boolean> = _isBackgroundServiceActive.asStateFlow()
 
     // Developer Mode diagnostics
     private val _lastStructuredIntent = MutableStateFlow<String>("{\"intent\": \"STANDBY\", \"status\": \"READY\"}")
@@ -106,23 +154,30 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
         // Apply initial voice settings
         voiceSystem.updateVoiceSettings(voiceSettings.value)
 
-        // Observe WhatsApp notification updates for auto-announcements if in foreground
+        // Observe WhatsApp notification updates for auto-announcements
         viewModelScope.launch {
             TarunNotificationListenerService.latestWhatsAppNotification.collect { notif ->
-                if (notif != null && _assistantState.value == AssistantState.IDLE) {
-                    val announcement = "${appSettings.value.bossTitle}, WhatsApp par ${notif.sender} ka message aaya hai."
-                    _lastAssistantReply.value = announcement
-                    repository.saveMessage(
-                        TarunMessage(
-                            text = announcement,
-                            isUser = false,
-                            language = "hi",
-                            actionExecuted = "WhatsApp Notification"
+                if (notif != null) {
+                    // Record in WhatsApp Agent
+                    handleIncomingWhatsAppFromNotification(notif)
+                    if (_assistantState.value == AssistantState.IDLE) {
+                        val announcement = "${appSettings.value.bossTitle}, WhatsApp par ${notif.sender} ka message aaya hai."
+                        _lastAssistantReply.value = announcement
+                        repository.saveMessage(
+                            TarunMessage(
+                                text = announcement,
+                                isUser = false,
+                                language = "hi",
+                                actionExecuted = "WhatsApp Notification"
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
+
+        // Fetch dynamic Gemini models in background
+        refreshAvailableGeminiModels()
     }
 
     fun refreshPermissions() {
@@ -164,7 +219,7 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
             val userMsg = TarunMessage(text = query, isUser = true)
             repository.saveMessage(userMsg)
 
-            // Check if there is an active pending confirmation (e.g. "Haan / Bhej do / Cancel")
+            // Check if there is an active pending confirmation
             val pending = _pendingConfirmationCommand.value
             if (pending != null) {
                 handleConfirmationResponse(query, pending)
@@ -184,7 +239,6 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
             val command = aiResult.command
 
             if (command != null && command.type != CommandType.CONVERSATION_ONLY) {
-                // Command requires validation & execution
                 val validation = actionValidator.validate(command)
                 when (validation) {
                     is ActionValidator.ValidationResult.Allowed -> {
@@ -235,7 +289,6 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } else {
-                // Pure conversational response
                 _lastAssistantReply.value = aiResult.spokenText
                 voiceSystem.speak(aiResult.spokenText, aiResult.detectedLanguage)
                 repository.saveMessage(
@@ -332,6 +385,210 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Alarms Management
+    fun addAlarm(hour: Int, minute: Int, label: String, daysOfWeek: String = "DAILY", isVibrate: Boolean = true) {
+        viewModelScope.launch {
+            val alarm = AlarmEntity(
+                hour = hour,
+                minute = minute,
+                label = label.ifBlank { "Tarun Alarm" },
+                daysOfWeek = daysOfWeek,
+                isVibrate = isVibrate,
+                isEnabled = true
+            )
+            val id = repository.saveAlarm(alarm)
+            val savedAlarm = alarm.copy(id = id)
+            alarmScheduler.scheduleAlarm(savedAlarm)
+            val msg = "${appSettings.value.bossTitle}, $hour:${String.format("%02d", minute)} ka alarm set kar diya hai."
+            _lastAssistantReply.value = msg
+            voiceSystem.speak(msg, "hi")
+        }
+    }
+
+    fun toggleAlarm(id: Long, enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleAlarm(id, enabled)
+            val alarm = repository.getAlarmById(id)
+            if (alarm != null) {
+                if (enabled) {
+                    alarmScheduler.scheduleAlarm(alarm.copy(isEnabled = true))
+                } else {
+                    alarmScheduler.cancelAlarm(id)
+                }
+            }
+        }
+    }
+
+    fun deleteAlarm(id: Long) {
+        viewModelScope.launch {
+            alarmScheduler.cancelAlarm(id)
+            repository.deleteAlarm(id)
+        }
+    }
+
+    fun clearAllAlarms() {
+        viewModelScope.launch {
+            val list = alarms.value
+            list.forEach { alarmScheduler.cancelAlarm(it.id) }
+            repository.clearAllAlarms()
+        }
+    }
+
+    // Media Player Controls
+    fun playTrack(track: AudioTrack) {
+        mediaPlayer.playTrack(track)
+    }
+
+    fun playPauseMusic() {
+        mediaPlayer.playPause()
+    }
+
+    fun playNextMusic() {
+        mediaPlayer.playNext()
+    }
+
+    fun playPrevMusic() {
+        mediaPlayer.playPrevious()
+    }
+
+    fun stopMusic() {
+        mediaPlayer.stop()
+    }
+
+    // WhatsApp Agent Controls
+    private suspend fun handleIncomingWhatsAppFromNotification(notif: NotificationEventEntity) {
+        val proposedReplyPrompt = "A WhatsApp message arrived from ${notif.sender}: '${notif.text}'. As ${appSettings.value.bossTitle}'s personal AI assistant, compose a helpful, polite, and brief suggested WhatsApp reply (1 sentence)."
+        val aiResult = aiProviderManager.processQuery(proposedReplyPrompt, AIContext(bossTitle = appSettings.value.bossTitle))
+        val proposed = aiResult.spokenText.removeSurrounding("\"")
+
+        repository.saveWhatsAppMessage(
+            WhatsAppMessageEntity(
+                contactName = notif.sender,
+                phoneNumber = "",
+                incomingText = notif.text,
+                proposedAiReply = proposed,
+                status = "PENDING_APPROVAL"
+            )
+        )
+    }
+
+    fun approveAndSendWhatsApp(message: WhatsAppMessageEntity) {
+        viewModelScope.launch {
+            val replyToSend = if (message.finalSentReply.isNotBlank()) message.finalSentReply else message.proposedAiReply
+            // Use notification listener inline reply if available
+            val sent = TarunNotificationListenerService.replyToLastWhatsApp(context, replyToSend)
+            repository.updateWhatsAppMessageStatus(message.id, if (sent) "SENT" else "APPROVED", replyToSend)
+            val msg = "${appSettings.value.bossTitle}, WhatsApp reply send kar diya hai: $replyToSend"
+            _lastAssistantReply.value = msg
+            voiceSystem.speak(msg, "hi")
+        }
+    }
+
+    fun rejectWhatsAppMessage(id: Long) {
+        viewModelScope.launch {
+            repository.updateWhatsAppMessageStatus(id, "REJECTED", "")
+        }
+    }
+
+    fun editAndSendWhatsApp(id: Long, newReply: String) {
+        viewModelScope.launch {
+            val sent = TarunNotificationListenerService.replyToLastWhatsApp(context, newReply)
+            repository.updateWhatsAppMessageStatus(id, if (sent) "SENT" else "APPROVED", newReply)
+        }
+    }
+
+    fun addWhatsAppContact(name: String, phone: String, notes: String, autoReply: Boolean) {
+        viewModelScope.launch {
+            repository.saveWhatsAppContact(
+                WhatsAppContactEntity(
+                    name = name,
+                    phoneNumber = phone,
+                    notes = notes,
+                    autoReplyEnabled = autoReply
+                )
+            )
+        }
+    }
+
+    fun deleteWhatsAppContact(id: Long) {
+        viewModelScope.launch {
+            repository.deleteWhatsAppContact(id)
+        }
+    }
+
+    fun testSimulateWhatsAppMessage(sender: String, messageText: String) {
+        viewModelScope.launch {
+            val prompt = "Incoming WhatsApp from $sender: '$messageText'. Write a professional 1-sentence draft reply for ${appSettings.value.bossTitle}."
+            val aiResult = aiProviderManager.processQuery(prompt, AIContext(bossTitle = appSettings.value.bossTitle))
+            repository.saveWhatsAppMessage(
+                WhatsAppMessageEntity(
+                    contactName = sender,
+                    phoneNumber = "+91 98765 43210",
+                    incomingText = messageText,
+                    proposedAiReply = aiResult.spokenText.removeSurrounding("\""),
+                    status = "PENDING_APPROVAL"
+                )
+            )
+        }
+    }
+
+    // Screen & Chat Analysis
+    fun analyzeCurrentScreen() {
+        _isAnalyzingScreen.value = true
+        viewModelScope.launch {
+            val result = ScreenAnalysisHelper.analyzeCurrentScreenText(aiProviderManager, appSettings.value.bossTitle)
+            _screenAnalysisResult.value = result
+            _isAnalyzingScreen.value = false
+            _lastAssistantReply.value = result
+            voiceSystem.speak(result, "hi")
+        }
+    }
+
+    fun clearScreenAnalysis() {
+        _screenAnalysisResult.value = null
+    }
+
+    fun analyzePastedChat(chatText: String, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val result = ScreenAnalysisHelper.summarizeChatText(chatText, aiProviderManager, appSettings.value.bossTitle)
+            onResult(result)
+        }
+    }
+
+    // Background Voice Service
+    fun startBackgroundAssistant() {
+        if (!permissionManager.isAudioPermissionGranted()) return
+        val serviceIntent = Intent(context, TarunVoiceService::class.java).apply {
+            action = TarunVoiceService.ACTION_START_LISTENING
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(serviceIntent)
+        } else {
+            context.startService(serviceIntent)
+        }
+        _isBackgroundServiceActive.value = true
+    }
+
+    fun stopBackgroundAssistant() {
+        val serviceIntent = Intent(context, TarunVoiceService::class.java).apply {
+            action = TarunVoiceService.ACTION_STOP
+        }
+        context.startService(serviceIntent)
+        _isBackgroundServiceActive.value = false
+    }
+
+    // Dynamic Gemini Model Discovery
+    fun refreshAvailableGeminiModels() {
+        viewModelScope.launch {
+            val provider = GeminiProvider(
+                customApiKey = appSettings.value.geminiApiKey.ifBlank { null },
+                modelName = appSettings.value.geminiModel
+            )
+            val models = provider.listAvailableModels()
+            _availableGeminiModels.value = models
+        }
+    }
+
     // Notification Center Actions
     fun deleteNotification(id: Long) {
         viewModelScope.launch {
@@ -374,7 +631,7 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             repository.saveAutomation(
-                com.example.data.local.AutomationEntity(
+                AutomationEntity(
                     name = name,
                     triggerType = triggerType,
                     triggerCondition = triggerCondition,
@@ -383,6 +640,32 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
                     isEnabled = true
                 )
             )
+        }
+    }
+
+    fun testAutomation(automation: AutomationEntity) {
+        viewModelScope.launch {
+            when (automation.actionType) {
+                "SPEAK_TEXT" -> {
+                    _lastAssistantReply.value = automation.actionPayload
+                    voiceSystem.speak(automation.actionPayload, "hi")
+                }
+                "OPEN_APP" -> {
+                    commandExecutor.execute(
+                        DeviceCommand(
+                            type = CommandType.OPEN_APP,
+                            rawQuery = "Open ${automation.actionPayload}",
+                            targetApp = automation.actionPayload,
+                            confirmationRequired = false
+                        ),
+                        bossTitle = appSettings.value.bossTitle
+                    )
+                }
+                else -> {
+                    _lastAssistantReply.value = automation.actionPayload
+                    voiceSystem.speak(automation.actionPayload, "hi")
+                }
+            }
         }
     }
 
@@ -398,33 +681,10 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun testAutomation(automation: com.example.data.local.AutomationEntity) {
-        viewModelScope.launch {
-            when (automation.actionType) {
-                "SPEAK_TEXT" -> {
-                    speakText(automation.actionPayload)
-                }
-                "TOGGLE_TORCH" -> {
-                    triggerQuickCommand(CommandType.TOGGLE_TORCH, "Torch toggle")
-                }
-                "OPEN_APP" -> {
-                    val cmd = DeviceCommand(
-                        type = CommandType.OPEN_APP,
-                        rawQuery = "open ${automation.actionPayload}",
-                        targetApp = automation.actionPayload
-                    )
-                    executeAndSpeak(cmd, "hi", "Opening app")
-                }
-                else -> {
-                    speakText("Testing automation: ${automation.name}")
-                }
-            }
-        }
-    }
-
     fun saveGeminiApiKey(apiKey: String) {
         val updated = appSettings.value.copy(geminiApiKey = apiKey.trim())
         updateAppSettings(updated)
+        refreshAvailableGeminiModels()
     }
 
     fun clearGeminiApiKey() {
@@ -444,7 +704,7 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val keyToUse = overrideKey ?: appSettings.value.geminiApiKey
             val modelToUse = overrideModel ?: appSettings.value.geminiModel
-            val provider = com.example.ai.GeminiProvider(
+            val provider = GeminiProvider(
                 customApiKey = keyToUse.ifBlank { null },
                 modelName = modelToUse,
                 temperature = appSettings.value.geminiTemperature,
@@ -455,6 +715,11 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
             _geminiDetailedStatus.value = result
             _geminiTestStatus.value = result.statusText
             _isTestingGemini.value = false
+            // Auto update model if fallback was selected
+            if (result.success && provider.getActiveModel() != modelToUse) {
+                val updated = appSettings.value.copy(geminiModel = provider.getActiveModel())
+                updateAppSettings(updated)
+            }
         }
     }
 
@@ -463,7 +728,7 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
             val localProvider = com.example.ai.LocalProvider()
             val result = localProvider.processQuery(
                 commandText,
-                com.example.ai.AIContext(bossTitle = appSettings.value.bossTitle)
+                AIContext(bossTitle = appSettings.value.bossTitle)
             )
             val cmd = result.command
             if (cmd != null && cmd.type != CommandType.CONVERSATION_ONLY) {
@@ -496,5 +761,6 @@ class TarunViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         voiceSystem.destroy()
+        mediaPlayer.stop()
     }
 }

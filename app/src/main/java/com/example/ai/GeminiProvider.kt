@@ -18,12 +18,12 @@ import java.util.concurrent.TimeUnit
 
 class GeminiProvider(
     private val customApiKey: String? = null,
-    private val modelName: String = "gemini-2.5-flash",
+    private var modelName: String = "gemini-2.5-flash",
     private val temperature: Float = 0.7f,
     private val maxTokens: Int = 512,
     private val timeoutSeconds: Int = 30
 ) : AIProvider {
-    override val name: String = "Google Gemini AI ($modelName)"
+    override val name: String get() = "Google Gemini AI ($modelName)"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(timeoutSeconds.coerceIn(5, 60).toLong(), TimeUnit.SECONDS)
@@ -43,6 +43,76 @@ class GeminiProvider(
         }
     }
 
+    fun getActiveModel(): String = modelName
+
+    fun setModel(newModel: String) {
+        modelName = newModel
+    }
+
+    suspend fun listAvailableModels(): List<String> = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey()
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "YOUR_GEMINI_API_KEY") {
+            return@withContext listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro")
+        }
+
+        try {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey"
+            val request = Request.Builder().url(url).get().build()
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                val json = JSONObject(body)
+                val modelsArray = json.optJSONArray("models") ?: JSONArray()
+                val resultList = mutableListOf<String>()
+                for (i in 0 until modelsArray.length()) {
+                    val modelObj = modelsArray.optJSONObject(i) ?: continue
+                    val name = modelObj.optString("name", "").removePrefix("models/")
+                    val methods = modelObj.optJSONArray("supportedGenerationMethods")
+                    var supportsGenerate = false
+                    if (methods != null) {
+                        for (j in 0 until methods.length()) {
+                            if (methods.optString(j) == "generateContent") {
+                                supportsGenerate = true
+                                break
+                            }
+                        }
+                    } else {
+                        supportsGenerate = true
+                    }
+                    if (supportsGenerate && name.isNotBlank() && name.startsWith("gemini")) {
+                        resultList.add(name)
+                    }
+                }
+                if (resultList.isNotEmpty()) {
+                    // Sort preferred models towards top
+                    resultList.sortWith { a, b ->
+                        val scoreA = when {
+                            a.contains("2.5-flash") -> 0
+                            a.contains("2.0-flash") -> 1
+                            a.contains("1.5-flash") -> 2
+                            a.contains("1.5-pro") -> 3
+                            a.contains("flash") -> 4
+                            else -> 5
+                        }
+                        val scoreB = when {
+                            b.contains("2.5-flash") -> 0
+                            b.contains("2.0-flash") -> 1
+                            b.contains("1.5-flash") -> 2
+                            b.contains("1.5-pro") -> 3
+                            b.contains("flash") -> 4
+                            else -> 5
+                        }
+                        scoreA.compareTo(scoreB)
+                    }
+                    return@withContext resultList
+                }
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+        return@withContext listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro")
+    }
+
     override suspend fun testConnection(): Boolean {
         return testConnectionDetailed().success
     }
@@ -57,7 +127,32 @@ class GeminiProvider(
             )
         }
 
-        val testUrl = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+        var candidateModel = modelName
+        var result = runTestForModel(apiKey, candidateModel)
+
+        // If 404/not found, attempt auto-discovery of working models
+        if (!result.success && result.isModelUnavailable) {
+            val discovered = listAvailableModels()
+            val fallback = discovered.firstOrNull { it != candidateModel && it.contains("flash") } ?: discovered.firstOrNull()
+            if (fallback != null) {
+                val fallbackResult = runTestForModel(apiKey, fallback)
+                if (fallbackResult.success) {
+                    modelName = fallback
+                    return@withContext ConnectionTestResult(
+                        success = true,
+                        statusText = "✓ Auto-recovered on model $fallback (Selected $candidateModel was unavailable).",
+                        statusCode = 200,
+                        responseText = fallbackResult.responseText
+                    )
+                }
+            }
+        }
+
+        return@withContext result
+    }
+
+    private fun runTestForModel(apiKey: String, model: String): ConnectionTestResult {
+        val testUrl = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
         val payload = JSONObject().apply {
             put("contents", JSONArray().apply {
                 put(JSONObject().apply {
@@ -91,9 +186,9 @@ class GeminiProvider(
                     ?.optJSONObject(0)
                     ?.optString("text") ?: ""
 
-                ConnectionTestResult(
+                return ConnectionTestResult(
                     success = true,
-                    statusText = "✓ GEMINI ONLINE ($modelName)",
+                    statusText = "✓ GEMINI ONLINE ($model)",
                     statusCode = code,
                     responseText = text.trim()
                 )
@@ -102,11 +197,11 @@ class GeminiProvider(
                 val isModelIssue = code == 404 || bodyString.contains("not found", ignoreCase = true)
                 val statusText = when {
                     isKeyIssue -> "✕ Invalid API Key ($code)"
-                    isModelIssue -> "✕ Model $modelName not found ($code)"
+                    isModelIssue -> "✕ Model $model not found ($code)"
                     code == 429 -> "⚠ Rate limit exceeded ($code). Try again later."
                     else -> "✕ Connection failed ($code)"
                 }
-                ConnectionTestResult(
+                return ConnectionTestResult(
                     success = false,
                     statusText = statusText,
                     statusCode = code,
@@ -115,25 +210,25 @@ class GeminiProvider(
                 )
             }
         } catch (e: UnknownHostException) {
-            ConnectionTestResult(
+            return ConnectionTestResult(
                 success = false,
                 statusText = "⚠ Network unavailable. Check internet connection.",
                 isNetworkUnavailable = true
             )
         } catch (e: SocketTimeoutException) {
-            ConnectionTestResult(
+            return ConnectionTestResult(
                 success = false,
                 statusText = "⚠ Connection timed out ($timeoutSeconds s).",
                 isNetworkUnavailable = true
             )
         } catch (e: IOException) {
-            ConnectionTestResult(
+            return ConnectionTestResult(
                 success = false,
                 statusText = "⚠ Network error: ${e.message ?: "Unable to reach Gemini"}",
                 isNetworkUnavailable = true
             )
         } catch (e: Exception) {
-            ConnectionTestResult(
+            return ConnectionTestResult(
                 success = false,
                 statusText = "✕ Test failed: ${e.message ?: "Unknown error"}"
             )
@@ -146,6 +241,24 @@ class GeminiProvider(
             throw IllegalStateException("Gemini API key is not configured.")
         }
 
+        try {
+            return@withContext executeGenerate(query, context, apiKey, modelName)
+        } catch (e: Exception) {
+            val msg = e.message ?: ""
+            if (msg.contains("404") || msg.contains("not found", ignoreCase = true)) {
+                // Auto-recover by finding working model
+                val available = listAvailableModels()
+                val fallback = available.firstOrNull { it != modelName && it.contains("flash") } ?: available.firstOrNull()
+                if (fallback != null) {
+                    modelName = fallback
+                    return@withContext executeGenerate(query, context, apiKey, fallback)
+                }
+            }
+            throw e
+        }
+    }
+
+    private fun executeGenerate(query: String, context: AIContext, apiKey: String, targetModel: String): AIResult {
         val boss = context.bossTitle
         val systemPrompt = """
             You are "Tarun", a futuristic, intelligent, and respectful JARVIS-style personal AI voice assistant.
@@ -186,7 +299,7 @@ class GeminiProvider(
             }
         """.trimIndent()
 
-        val requestUrl = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+        val requestUrl = "https://generativelanguage.googleapis.com/v1beta/models/$targetModel:generateContent?key=$apiKey"
 
         val contentsArray = JSONArray()
         // Include recent conversation turns if any
@@ -229,7 +342,7 @@ class GeminiProvider(
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) {
             val code = response.code
-            throw Exception("Gemini API returned status $code")
+            throw Exception("Gemini API returned status $code ($targetModel)")
         }
 
         val responseString = response.body?.string() ?: throw Exception("Empty Gemini response")
@@ -267,7 +380,7 @@ class GeminiProvider(
             conversationalReply = spokenText
         )
 
-        return@withContext AIResult(
+        return AIResult(
             spokenText = spokenText,
             detectedLanguage = detectedLang,
             command = command,
@@ -289,4 +402,3 @@ class GeminiProvider(
         return trimmed.trim()
     }
 }
-

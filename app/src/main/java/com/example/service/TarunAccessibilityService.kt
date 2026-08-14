@@ -31,6 +31,27 @@ class TarunAccessibilityService : AccessibilityService() {
         }
 
         fun isConnected(): Boolean = instance != null
+
+        fun getScreenTextDump(): String {
+            val root = instance?.rootInActiveWindow ?: return ""
+            val sb = StringBuilder()
+            extractNodeText(root, sb)
+            return sb.toString().trim()
+        }
+
+        private fun extractNodeText(node: android.view.accessibility.AccessibilityNodeInfo?, sb: StringBuilder) {
+            if (node == null) return
+            val text = node.text?.toString()?.trim()
+            val desc = node.contentDescription?.toString()?.trim()
+            if (!text.isNullOrBlank()) {
+                sb.append(text).append("\n")
+            } else if (!desc.isNullOrBlank()) {
+                sb.append(desc).append("\n")
+            }
+            for (i in 0 until node.childCount) {
+                extractNodeText(node.getChild(i), sb)
+            }
+        }
     }
 
     override fun onServiceConnected() {

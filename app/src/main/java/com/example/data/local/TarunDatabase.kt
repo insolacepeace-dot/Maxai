@@ -10,9 +10,12 @@ import androidx.room.RoomDatabase
         ConversationEntity::class,
         NotificationEventEntity::class,
         MemoryFactEntity::class,
-        AutomationEntity::class
+        AutomationEntity::class,
+        AlarmEntity::class,
+        WhatsAppContactEntity::class,
+        WhatsAppMessageEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class TarunDatabase : RoomDatabase() {
