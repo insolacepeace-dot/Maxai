@@ -119,4 +119,24 @@ interface TarunDao {
 
     @Query("DELETE FROM whatsapp_messages")
     suspend fun clearAllWhatsAppMessages()
+
+    // JARVIS Action History
+    @Query("SELECT * FROM jarvis_actions ORDER BY timestamp DESC")
+    fun getAllJarvisActions(): Flow<List<JarvisActionEntity>>
+
+    @Query("SELECT * FROM jarvis_actions ORDER BY timestamp DESC LIMIT :limit")
+    fun getRecentJarvisActions(limit: Int = 50): Flow<List<JarvisActionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertJarvisAction(action: JarvisActionEntity): Long
+
+    @Query("UPDATE jarvis_actions SET status = :status, executionDetails = :details WHERE id = :id")
+    suspend fun updateJarvisActionStatus(id: Long, status: String, details: String)
+
+    @Query("DELETE FROM jarvis_actions WHERE id = :id")
+    suspend fun deleteJarvisAction(id: Long)
+
+    @Query("DELETE FROM jarvis_actions")
+    suspend fun clearAllJarvisActions()
 }
+

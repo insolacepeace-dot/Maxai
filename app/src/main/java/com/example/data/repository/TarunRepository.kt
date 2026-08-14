@@ -163,6 +163,37 @@ class TarunRepository(
         dao.clearAllWhatsAppMessages()
     }
 
+    // JARVIS Action History
+    val jarvisActions: Flow<List<com.example.data.local.JarvisActionEntity>> = dao.getAllJarvisActions()
+
+    suspend fun logJarvisAction(
+        trigger: String,
+        userCommand: String,
+        aiSummary: String,
+        actionExecuted: String,
+        status: String = "SUCCESS",
+        details: String = ""
+    ): Long {
+        return dao.insertJarvisAction(
+            com.example.data.local.JarvisActionEntity(
+                trigger = trigger,
+                userCommand = userCommand,
+                aiSummary = aiSummary,
+                actionExecuted = actionExecuted,
+                status = status,
+                executionDetails = details
+            )
+        )
+    }
+
+    suspend fun deleteJarvisAction(id: Long) {
+        dao.deleteJarvisAction(id)
+    }
+
+    suspend fun clearAllJarvisActions() {
+        dao.clearAllJarvisActions()
+    }
+
     fun updateAppSettings(settings: AppSettings) {
         preferences.updateAppSettings(settings)
     }

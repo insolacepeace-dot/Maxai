@@ -384,7 +384,8 @@ class GeminiProvider(
             spokenText = spokenText,
             detectedLanguage = detectedLang,
             command = command,
-            isFromGemini = true
+            isFromGemini = true,
+            providerUsed = "Google Gemini ($targetModel)"
         )
     }
 
